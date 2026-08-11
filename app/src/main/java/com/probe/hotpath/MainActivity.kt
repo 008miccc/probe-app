@@ -4,10 +4,10 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import android.widget.LinearLayout
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 import kotlin.concurrent.thread
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
     @Volatile private var running = false
 
