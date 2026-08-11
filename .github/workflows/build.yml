@@ -1,0 +1,65 @@
+name: Build HotpathProbe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew || (gradle wrapper && chmod +x gradlew)
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Locate outputs
+        id: locate
+        run: |
+          APK=$(find . -name "*.apk" -path "*release*" | head -n1)
+          SO=$(find . -name "libhotpath.so" -path "*arm64-v8a*" | head -n1)
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          echo "so_path=$SO" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK" "$SO"
+
+      - name: Split debug info from the native library
+        run: |
+          NDK_HOME=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | sort -V | tail -n1)
+          OBJCOPY="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy"
+          SO="${{ steps.locate.outputs.so_path }}"
+
+          mkdir -p out
+          "$OBJCOPY" --only-keep-debug "$SO" out/libhotpath.debug
+          cp "$SO" out/libhotpath-stripped.so
+          "$OBJCOPY" --strip-debug out/libhotpath-stripped.so
+          "$OBJCOPY" --add-gnu-debuglink=out/libhotpath.debug out/libhotpath-stripped.so
+
+          echo "Debug info:"
+          ls -lh out/libhotpath.debug
+          echo "Stripped (matches what's inside the APK, for reference):"
+          ls -lh out/libhotpath-stripped.so
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HotpathProbe-apk
+          path: ${{ steps.locate.outputs.apk_path }}
+          retention-days: 30
+
+      - name: Upload debug info (for symbolization / Frida symbol resolution)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HotpathProbe-debuginfo
+          path: out/libhotpath.debug
+          retention-days: 30
